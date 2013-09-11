@@ -22,7 +22,7 @@ pear channel-discover pear.phing.info
 pear install --alldeps phing/phing
 
 
-USAGE - 
+# USAGE 
 /path-to-build.xml/
 
 phing
