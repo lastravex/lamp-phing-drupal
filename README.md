@@ -8,16 +8,23 @@ Phing - Required.
 
 # Install Pear
 wget -q -O - http://pear.php.net/go-pear.phar > /tmp/go-pear.phar
+
 php /tmp/go-pear.phar
+
 rm /tmp/go-pear.phar
+
 pear upgrade pear
+
  
 # Install Phing
 pear channel-discover pear.phing.info
+
 pear install --alldeps phing/phing
+
 
 USAGE - 
 /path-to-build.xml/
+
 phing
 
 
