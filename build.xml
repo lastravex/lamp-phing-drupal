@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<project name="" basedir="." default="drupalBuild">
+
+    <!-- Import Properties -->
+    <property file="./build.properties" />
+    <property name="package" value="${remote.project.name}" override="true" />
+    <property name="srcdir" value="${project.basedir}" override="true" />
+
+    <!-- Local Development Domain -->
+    <propertyprompt propertyName="package" defaultValue="${remote.project.name}.local.dev"
+        promptText="Enter name of the site and domain eg. ${remote.project.name}.local.dev" />
+    <echo>${package}</echo>
+    <property name="builddir" value="${package}" />
+
+    <!-- Web Root -->
+    <propertyprompt propertyName="webroot" defaultValue="/var/www/sites"
+        promptText="Enter your web root eg. /var/www/" />
+    <echo>${webroot}</echo>
+
+    <!-- ============================================ -->
+    <!-- Platform Template                            -->
+    <!-- ============================================ -->
+    <echo>Choose a valid platform template:</echo>
+    <input propertyName="template" defaultValue="acquia" validargs="standard,acquia,pantheon">Enter one of the available platform templates.</input>
+    <echo>${template}</echo>
+    <fileset dir="./src/templates/${template}/" id="templatefiles">
+      <include name="**" />
+    </fileset>
+    <target name="drupalBuild" description="drupalBuild target">
+      <copy todir="${webroot}/${builddir}">
+        <fileset refid="templatefiles" />
+      </copy>
+    </target>
+
+    <!-- ============================================ -->
+    <!-- Create Database                              -->
+    <!-- ============================================ -->
+    <input propertyName="databaseName" defaultValue="${remote.project.name}" promptChar="?">Choose the database name</input>
+    <echo>Creating database ${databaseName}</echo>
+    <exec command="mysqladmin -u ${local.db.user} -h ${local.db.host} password ${local.db.pass} create ${databaseName}" passthru="true"/>
+
+    <!-- ============================================ -->
+    <!-- Apache Config                                -->
+    <!-- ============================================ -->
+    <input propertyName="confPath" defaultValue="/etc/apache2/sites-available" promptChar="?">Apache config path</input>
+    <input propertyName="sitesEnabled" defaultValue="/etc/apache2/sites-enabled" promptChar="?">Apache enabled sites path</input>
+    <copy file="./src/templates/apache/apache.conf.tpl" tofile="${confPath}/${package}" overwrite="true">
+      <filterchain>
+        <!-- Expand templates -->
+        <expandproperties/>
+      </filterchain>
+    </copy>
+    <echo message="Apache virtual host configuration created." />
+    <exec command="ln -s ${confPath}/${package} ${sitesEnabled}/${package}" passthru="true"/>
+
+    <!-- ============================================ -->
+    <!-- Drupal Installation                          -->
+    <!-- ============================================ -->
+    <!-- Set Acquia docroot path -->
+    <if>
+      <equals arg1="acquia"  arg2="${template}" />
+      <then>
+       <property name="template.docroot" value="www/docroot" override="true" />
+      </then>
+    </if>
+
+    <!-- Set Standard docroot path -->
+    <if>
+       <equals arg1="standard"  arg2="${template}" />
+      <then>
+       <property name="template.docroot" value="www" override="true" />
+      </then>
+    </if>
+
+    <!-- Download Drupal -->
+    <echo message="Downloading Drupal 7 to ${webroot}/${builddir}/${template.docroot}" />
+    <exec command="drush dl drupal --drupal-project-rename=drupal" passthru="true"/>
+
+    <!-- Move Drupal File System -->
+    <fileset dir="./drupal/" id="drupalFiles">
+      <include name="**" />
+    </fileset>
+    <copy todir="${webroot}/${builddir}/${template.docroot}">
+      <fileset refid="drupalFiles" />
+    </copy>
+    <exec command="rm -rf ./drupal/" />
+
+    <!-- Configure Drupal Filesystem -->
+    <echo message="Configuring Drupal filesystem" />
+    <exec command="mkdir ${webroot}/${builddir}/${template.docroot}/sites/default/files" />
+    <exec command="chmod 777 ${webroot}/${builddir}/${template.docroot}/sites/default/files" />
+
+    <!-- Configure Settings Files for All Environments -->
+    <exec command="mkdir ${webroot}/${builddir}/${template.docroot}/sites/all/config" />
+    <fileset dir="./src/templates/${template}/config/" id="drupalSettingsConfig">
+      <include name="**" />
+    </fileset>
+
+    <!-- Copy fileset and expand properties into templates -->
+    <copy todir="${webroot}/${builddir}/${template.docroot}/sites/all/config">
+      <fileset refid="drupalSettingsConfig" />
+      <!-- Rename file extensions -->
+      <mapper type="glob" from="*.php.tpl" to="*.php"/>
+      <filterchain>
+        <!-- Expand templates -->
+        <expandproperties/>
+      </filterchain>
+    </copy>
+
+    <!-- Copy settings.php -->
+    <copy file="${webroot}/${builddir}/${template.docroot}/sites/all/config/settings.php" 
+        tofile="${webroot}/${builddir}/${template.docroot}/sites/default/settings.php" overwrite="true"/>
+
+    <!-- Create local Drush alias -->
+    <copy file="./src/templates/drush/drush.aliases.drushrc.php.tpl" tofile="/etc/drush/${remote.project.name}.aliases.drushrc.php">
+      <filterchain>
+        <!-- Expand templates -->
+        <expandproperties/>
+      </filterchain>
+    </copy>
+
+    <!-- Cleanup config templates -->
+    <exec command="rm -rf ${webroot}/${builddir}/config" passthru="true"/>
+    
+    <!-- ============================================ -->
+    <!-- Add Host Entry                               -->
+    <!-- ============================================ --> 
+    <exec command="echo '${local.vm.ip} ${package}' >> /etc/hosts" passthru="true"/>
+
+    <!-- ============================================ -->
+    <!-- Restart Apache                               -->
+    <!-- ============================================ -->     
+    <echo message="Restarting Apache" />
+    <exec command="service apache2 restart" passthru="true"/>
+
+    <!-- ============================================ -->
+    <!-- Drupal Site Install                          -->
+    <!-- ============================================ -->
+    <echo message="Installing Drupal via Drush" />
+    <exec command="drush @${remote.project.name}.local site-install standard --db-url=mysql://${local.db.user}:${local.db.pass}@${local.db.host}/${databaseName} --site-name=${drupal.site.name} --account-name=${drupal.admin.name} --account-pass=${drupal.admin.pass}" passthru="true"/>
+
+    <!-- ============================================ -->
+    <!-- Final Restart Apache                         -->
+    <!-- ============================================ -->     
+    <echo message="Restarting Apache" />
+    <exec command="service apache2 restart" passthru="true"/>
+</project>
